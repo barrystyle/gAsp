@@ -1,0 +1,87 @@
+sudo: required
+dist: trusty
+os: linux
+language: generic
+cache:
+  directories:
+  - depends/built
+  - depends/sdk-sources
+  - $HOME/.ccache
+env:
+  global:
+    - MAKEJOBS=-j1
+    - RUN_TESTS=false
+    - CHECK_DOC=0
+    - BOOST_TEST_RANDOM=1$TRAVIS_BUILD_ID
+    - CCACHE_SIZE=100M
+    - CCACHE_TEMPDIR=/tmp/.ccache-temp
+    - CCACHE_COMPRESS=1
+    - BASE_OUTDIR=$TRAVIS_BUILD_DIR/out
+    - SDK_URL=https://bitcoincore.org/depends-sources/sdks
+    - PYTHON_DEBUG=1
+    - LITECOIN_SCRYPT=0
+  matrix:
+# ARM
+    - HOST=arm-linux-gnueabihf PACKAGES="g++-arm-linux-gnueabihf" CHECK_DOC=1 GOAL="install" BITCOIN_CONFIG="--enable-glibc-back-compat --enable-reduce-exports"
+# Win32
+    - HOST=i686-w64-mingw32 DPKG_ADD_ARCH="i386" PACKAGES="python3 python3-dev python3-pip nsis g++-mingw-w64-i686 wine1.6 bc" GOAL="install" BITCOIN_CONFIG="--enable-gui --enable-reduce-exports" LITECOIN_SCRYPT=1
+# Win64
+    - HOST=x86_64-w64-mingw32 DPKG_ADD_ARCH="i386" PACKAGES="python3 python3-dev python3-pip nsis g++-mingw-w64-x86-64 wine1.6 bc" GOAL="install" BITCOIN_CONFIG="--enable-gui --enable-reduce-exports" LITECOIN_SCRYPT=1
+# bitcoind
+    - HOST=x86_64-unknown-linux-gnu PACKAGES="bc python3-zmq python3-dev python3-pip" GOAL="install" BITCOIN_CONFIG="--enable-zmq --enable-glibc-back-compat --enable-reduce-exports CPPFLAGS=-DDEBUG_LOCKORDER" LITECOIN_SCRYPT=1
+# Cross-Mac
+    - HOST=x86_64-apple-darwin11 PACKAGES="cmake imagemagick libcap-dev librsvg2-bin libz-dev libbz2-dev libtiff-tools python-dev" BITCOIN_CONFIG="--enable-gui --enable-reduce-exports" OSX_SDK=10.11 GOAL="deploy"
+before_install:
+    - export PATH=$(echo $PATH | tr ':' "\n" | sed '/\/opt\/python/d' | tr "\n" ":" | sed "s|::|:|g")
+    - export PATH=$(echo $PATH | tr ':' "\n" | sed '/\/opt\/pyenv/d' | tr "\n" ":" | sed "s|::|:|g")
+install:
+    - if [ -n "$PPA" ]; then travis_retry sudo add-apt-repository "$PPA" -y; fi
+    - if [ -n "$DPKG_ADD_ARCH" ]; then sudo dpkg --add-architecture "$DPKG_ADD_ARCH" ; fi
+    - if [ -n "$PACKAGES" ]; then travis_retry sudo apt-get update; fi
+    - if [ -n "$PACKAGES" ]; then travis_retry sudo apt-get install --no-install-recommends --no-upgrade -qq $PACKAGES; fi
+    - if [ "$LITECOIN_SCRYPT" = 1 ]; then travis_retry sudo pip3 install litecoin_scrypt; fi
+before_script:
+    - unset CC; unset CXX
+    - if [ "$CHECK_DOC" = 1 ]; then contrib/devtools/check-doc.py; fi
+    - mkdir -p depends/SDKs depends/sdk-sources
+    - if [ -n "$OSX_SDK" -a ! -f depends/sdk-sources/MacOSX${OSX_SDK}.sdk.tar.gz ]; then curl --location --fail $SDK_URL/MacOSX${OSX_SDK}.sdk.tar.gz -o depends/sdk-sources/MacOSX${OSX_SDK}.sdk.tar.gz; fi
+    - if [ -n "$OSX_SDK" -a -f depends/sdk-sources/MacOSX${OSX_SDK}.sdk.tar.gz ]; then tar -C depends/SDKs -xf depends/sdk-sources/MacOSX${OSX_SDK}.sdk.tar.gz; fi
+    - make $MAKEJOBS -C depends HOST=$HOST $DEP_OPTS
+script:
+    - export TRAVIS_COMMIT_LOG=`git log --format=fuller -1`
+    - if [ -n "$USE_SHELL" ]; then export CONFIG_SHELL="$USE_SHELL"; fi
+    - OUTDIR=$BASE_OUTDIR/$TRAVIS_PULL_REQUEST/$TRAVIS_JOB_NUMBER-$HOST
+    - BITCOIN_CONFIG_ALL="--disable-dependency-tracking --prefix=$TRAVIS_BUILD_DIR/depends/$HOST --bindir=$OUTDIR/bin --libdir=$OUTDIR/lib"
+    - depends/$HOST/native/bin/ccache --max-size=$CCACHE_SIZE
+    - test -n "$USE_SHELL" && eval '"$USE_SHELL" -c "./autogen.sh"' || ./autogen.sh
+    - mkdir build && cd build
+    - ../configure --cache-file=config.cache $BITCOIN_CONFIG_ALL $BITCOIN_CONFIG || ( cat config.log && false)
+    - make distdir VERSION=$HOST
+    - cd gasp-$HOST
+    - ./configure --cache-file=../config.cache $BITCOIN_CONFIG_ALL $BITCOIN_CONFIG || ( cat config.log && false)
+    - make $MAKEJOBS $GOAL || ( echo "Build failure. Verbose build follows." && make $GOAL V=1 ; false )
+    - ls -la
+    - if [ -n "$OSX_SDK" ]; then cd ../../ ; fi
+    - if [ -n "$OSX_SDK" ]; then mkdir out; fi
+    - if [ -n "$OSX_SDK" ]; then mkdir out/$TRAVIS_PULL_REQUEST; fi
+    - if [ -n "$OSX_SDK" ]; then mkdir out/$TRAVIS_PULL_REQUEST/$TRAVIS_JOB_NUMBER-$HOST; fi
+    - if [ -n "$OSX_SDK" ]; then mkdir out/$TRAVIS_PULL_REQUEST/$TRAVIS_JOB_NUMBER-$HOST/bin; fi
+    - if [ -n "$OSX_SDK" ]; then cp -rf build/gasp-$HOST/gAsp* ${OUTDIR}/bin; fi
+    - ls -la ${OUTDIR}/bin
+    - export LD_LIBRARY_PATH=$TRAVIS_BUILD_DIR/depends/$HOST/lib
+    - if [ "$RUN_TESTS" = "true" ]; then make $MAKEJOBS check VERBOSE=1; fi
+    - if [ "$RUN_TESTS" = "true" ]; then qa/pull-tester/rpc-tests.py --coverage; fi
+after_script:
+    - echo $TRAVIS_COMMIT_RANGE
+    - echo $TRAVIS_COMMIT_LOG
+before_deploy: cd ${OUTDIR}/../ && tar -zcvf gasp-$HOST.tar.gz -C ${OUTDIR}/bin .
+deploy:
+  skip_cleanup: true
+  provider: releases
+  token:
+    secure: vWuwQ8of65Hzb4Ju4D4YmLQm5xZGvWs7I4rgAQ/1vkla/R0+i3/yLalVCgdeea6F0exFgSqqtkVEWabl2JXmj96wh33lRaYRuQwL3VS8UhWcgp8g68GFjPYBoIkenzSoa0xGdEFgqTumLSRZzddikeidEtbN1Qt469y9mgCKdvUlqpMIc068BN6q3xdhSOOhD+cIs2GVAq0den7x7Jeaa3jlMxRaJDgQ61x58/bM1ZutgWI9tb20Rvq+/csUr+G4mdsU/GjXlgVPH9EzgTsG/yzLhoy5Rlcw4xEs3SmLykNxGW/1gcLoYKpGPcRiHyhIqEo7ZesKRSDe5opoMWi5E/wI65DPbcGY/Bj8hrmyY0iEUlehCzc+nkelaYyo/s6YYIAF79IqIE2sm/2JlmcwuC7x1zAd/KZnof+gs2pAevJgZ3Au3b7vQIQaGVRswEYpjc0fpvEZfgX3Ug8RyjNBGj7fr7j9DdG8vBqzbsrMx734V0nWJmhNNmz/oRFO0NCd1Dni2fenxCCR64laMhlj0b9yyyEeo4estnilUikWZ/Fr1Xgs/ig/CfZfqmJFut9Z7AsXQthTZvh0EL0q29Z5+u/UhBiHzdbe3HSlhHQ7/HInUtgzEMyDWWX0IRh2Z5OvgEkqBLWjew+zH7IkdLf6kLTmq5IzOa/AQjMEz6xX7X4=
+  file:
+    - ${OUTDIR}/..//gasp-$HOST.tar.gz
+  on:
+    repo: AspireOrg/gAsp
+    tags: true
