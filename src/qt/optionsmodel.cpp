@@ -151,7 +151,7 @@ void OptionsModel::Init(bool resetSettings)
         addOverriddenOption("-lang");
 
     if (!settings.contains("fUseBlackTheme"))
-        settings.setValue("fUseBlackTheme", true);
+        settings.setValue("fUseBlackTheme", false);
     if (!SoftSetBoolArg("-blacktheme", settings.value("fUseBlackTheme").toBool()))
         addOverriddenOption("-blacktheme");
     fUseBlackTheme = settings.value("fUseBlackTheme").toBool();
