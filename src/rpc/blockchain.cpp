@@ -9,6 +9,7 @@
 #include <blockfilter.h>
 #include <chain.h>
 #include <chainparams.h>
+#include <checkpointsync.h>
 #include <coins.h>
 #include <consensus/validation.h>
 #include <core_io.h>
@@ -2341,6 +2342,59 @@ UniValue dumptxoutset(const JSONRPCRequest& request)
     return result;
 }
 
+static UniValue getcheckpoint(const JSONRPCRequest& request)
+{
+    UniValue result(UniValue::VOBJ);
+    CBlockIndex* pindexCheckpoint;
+
+    result.pushKV("synccheckpoint", hashSyncCheckpoint.ToString());
+    {
+        LOCK(cs_main);
+        if (::BlockIndex().count(hashSyncCheckpoint))
+        {
+            pindexCheckpoint = ::BlockIndex()[hashSyncCheckpoint];
+            result.pushKV("height", pindexCheckpoint->nHeight);
+            result.pushKV("timestamp", pindexCheckpoint->GetBlockTime());
+        }
+    }
+
+    if (gArgs.IsArgSet("-checkpointkey"))
+        result.pushKV("checkpointmaster", true);
+
+    return result;
+}
+
+static UniValue sendcheckpoint(const JSONRPCRequest& request)
+{
+    if (!gArgs.IsArgSet("-checkpointkey") || CSyncCheckpoint::strMasterPrivKey.empty())
+        throw std::runtime_error("Not a checkpointmaster node, first set checkpointkey in configuration and restart client. ");
+
+    std::string strHash = request.params[0].get_str();
+    uint256 hash = uint256S(strHash);
+
+    if (!SendSyncCheckpoint(hash))
+        throw std::runtime_error("Failed to send checkpoint, check log. ");
+
+    UniValue result(UniValue::VOBJ);
+    CBlockIndex* pindexCheckpoint;
+
+    result.pushKV("synccheckpoint", hashSyncCheckpoint.ToString());
+    {
+        LOCK(cs_main);
+        if (::BlockIndex().count(hashSyncCheckpoint))
+        {
+            pindexCheckpoint = ::BlockIndex()[hashSyncCheckpoint];
+            result.pushKV("height", pindexCheckpoint->nHeight);
+            result.pushKV("timestamp", pindexCheckpoint->GetBlockTime());
+        }
+    }
+
+    if (gArgs.IsArgSet("-checkpointkey"))
+       result.pushKV("checkpointmaster", true);
+
+    return result;
+}
+
 void RegisterBlockchainRPCCommands(CRPCTable &t)
 {
 // clang-format off
@@ -2355,6 +2409,8 @@ static const CRPCCommand commands[] =
     { "blockchain",         "getblock",               &getblock,               {"blockhash","verbosity|verbose"} },
     { "blockchain",         "getblockhash",           &getblockhash,           {"height"} },
     { "blockchain",         "getblockheader",         &getblockheader,         {"blockhash","verbose"} },
+    { "blockchain",         "getcheckpoint",          &getcheckpoint,          {} },
+    { "blockchain",         "sendcheckpoint",         &sendcheckpoint,         {"blockhash"} },
     { "blockchain",         "getchaintips",           &getchaintips,           {} },
     { "blockchain",         "getdifficulty",          &getdifficulty,          {} },
     { "blockchain",         "getmempoolancestors",    &getmempoolancestors,    {"txid","verbose"} },

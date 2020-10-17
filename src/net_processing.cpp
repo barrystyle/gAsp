@@ -9,18 +9,21 @@
 #include <banman.h>
 #include <blockencodings.h>
 #include <chainparams.h>
+#include <checkpointsync.h>
 #include <consensus/validation.h>
 #include <hash.h>
 #include <validation.h>
 #include <merkleblock.h>
 #include <netmessagemaker.h>
 #include <netbase.h>
+#include <node/context.h>
 #include <policy/fees.h>
 #include <policy/policy.h>
 #include <primitives/block.h>
 #include <primitives/transaction.h>
 #include <random.h>
 #include <reverse_iterator.h>
+#include <rpc/blockchain.h>
 #include <scheduler.h>
 #include <tinyformat.h>
 #include <txmempool.h>
@@ -2080,6 +2083,18 @@ bool ProcessMessage(CNode* pfrom, const std::string& msg_type, CDataStream& vRec
             connman->MarkAddressGood(pfrom->addr);
         }
 
+        if((nServices & NODE_ACP))
+        {
+            pfrom->supportACPMessages = true;
+
+            // Relay sync-checkpoint
+            {
+                LOCK(cs_main);
+                if (!checkpointMessage.IsNull())
+                    checkpointMessage.RelayTo(pfrom);
+            }
+        }
+
         std::string remoteAddr;
         if (fLogIPs)
             remoteAddr = ", peeraddr=" + pfrom->addr.ToString();
@@ -3164,6 +3179,22 @@ bool ProcessMessage(CNode* pfrom, const std::string& msg_type, CDataStream& vRec
         }
         if (bPingFinished) {
             pfrom->nPingNonceSent = 0;
+        }
+        return true;
+    }
+
+    if (msg_type == NetMsgType::CHECKPOINT)
+    {
+        CSyncCheckpoint checkpoint;
+        vRecv >> checkpoint;
+
+        if (checkpoint.ProcessSyncCheckpoint())
+        {
+            // Relay checkpoint
+            pfrom->hashCheckpointKnown = checkpoint.hashCheckpoint;
+            g_rpc_node->connman->ForEachNode([&checkpoint](CNode* pnode) {
+                checkpoint.RelayTo(pnode);
+            });
         }
         return true;
     }

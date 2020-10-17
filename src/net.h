@@ -793,6 +793,10 @@ public:
     uint256 hashContinue;
     std::atomic<int> nStartingHeight{-1};
 
+    // checkpointing
+    uint256 hashCheckpointKnown;
+    bool supportACPMessages{false};
+
     // flood relay
     std::vector<CAddress> vAddrToSend;
     const std::unique_ptr<CRollingBloomFilter> m_addr_known;
