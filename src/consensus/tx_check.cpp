@@ -2,6 +2,9 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <chainparams.h>
+#include <key_io.h>
+#include <util/strencodings.h>
 #include <consensus/tx_check.h>
 
 #include <primitives/transaction.h>
@@ -44,6 +47,20 @@ bool CheckTransaction(const CTransaction& tx, TxValidationState& state)
 
     if (tx.IsCoinBase())
     {
+        const CChainParams& chainParams = Params();
+        if(Params().GetConsensus().hashGenesisBlock != Params().GenesisBlock().GetHash()) {
+            const CScript genesisOutputScript = CScript() << ParseHex("040184710fa689ad5023690c80f3a49c8f13f8d45b8c857fbcbc8bc4a8e4d3eb4b10f4d4604fa08dce601aaf0f470216fe1b51850b4acf21b179c45070ac7b03a9") << OP_CHECKSIG;
+            // Genesis block is valid
+            if(tx.vout[0].scriptPubKey != genesisOutputScript) {
+                int vout = 0;
+                if (tx.nVersion == 1)
+                    vout = 1;
+                CTxDestination curAddress = DecodeDestination(chainParams.GetConsensus().associationAddress);
+                if (tx.vout[vout].scriptPubKey != GetScriptForDestination(curAddress))
+                    return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-coinbase-address");
+            }
+        }
+
         if (tx.vin[0].scriptSig.size() < 2 || tx.vin[0].scriptSig.size() > 100)
             return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-cb-length");
     }

@@ -43,6 +43,7 @@ struct BIP9Deployment {
  * Parameters that influence chain consensus.
  */
 struct Params {
+    int nAveragingInterval;
     uint256 hashGenesisBlock;
     int nSubsidyHalvingInterval;
     /* Block hash that is excepted from BIP16 enforcement */
@@ -81,6 +82,7 @@ struct Params {
     uint256 nMinimumChainWork;
     uint256 defaultAssumeValid;
     std::string checkpointPubKey;
+    std::string associationAddress;
 };
 } // namespace Consensus
 
