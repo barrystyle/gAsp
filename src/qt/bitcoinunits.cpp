@@ -40,9 +40,9 @@ QString BitcoinUnits::longName(int unit)
 {
     switch(unit)
     {
-    case BTC: return QString("BTC");
-    case mBTC: return QString("mBTC");
-    case uBTC: return QString::fromUtf8("µBTC (bits)");
+    case BTC: return QString("GASP");
+    case mBTC: return QString("mGASP");
+    case uBTC: return QString::fromUtf8("µGASP (bits)");
     case SAT: return QString("Satoshi (sat)");
     default: return QString("???");
     }
